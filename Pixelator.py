@@ -103,6 +103,7 @@ def main():
     try:
         fileName = sys.argv[1]
         newRes = sys.argv[2] # formated as "WidthxHeight"
+        newRes = newRes.replace(",", "x")
         width = int(newRes.split("x")[0])
         height = int(newRes.split("x")[1])
     except:
