@@ -2,7 +2,7 @@ import sys
 
 import numpy as np
 import imageio.v2 as iio
-
+import threading
 
 imageInputPath = "images/"
 imageOutputPath = "output/"
@@ -35,8 +35,15 @@ def getColorPalletOfImage(image, maxColors, whiteThreshold = 240):
     for x in range(image.shape[1]):
         for y in range(image.shape[0]):
             for i in range(3):
-                if (image[y][x][i] > whiteThreshold):
+                if (image[y][x][i] > 255 - whiteThreshold):
                     image[y][x][i] = 255
+                if (image[y][x][i] < whiteThreshold):
+                    image[y][x][i] = 0
+    # go through the image and make all the colors that are black have an alpha of 255
+    for x in range(image.shape[1]):
+        for y in range(image.shape[0]):
+            if (image[y][x][0] < 10 and image[y][x][1] < 10 and image[y][x][2] < 10):
+                image[y][x][3] = 255
     
     # make a dict for the colors with how many times they appear
     colorPallet = {}
@@ -46,15 +53,15 @@ def getColorPalletOfImage(image, maxColors, whiteThreshold = 240):
 
     colorPalletFinal = []
     # take the top maxColors colors
-    for color in sorted(colorPallet, key=colorPallet.get, reverse=True):
-        colorPalletFinal.append(color)
-        if (len(colorPalletFinal) >= maxColors):
-            break
+    # for color in sorted(colorPallet, key=colorPallet.get, reverse=True):
+    #     colorPalletFinal.append(color)
+    #     if (len(colorPalletFinal) >= maxColors):
+    #         break
     
     # only take the colors seen over 50 times
-    # for color in colorPallet:
-    #     if (colorPallet[color] > 50):
-    #         colorPalletFinal.append(color)
+    for color in colorPallet:
+        if (colorPallet[color] > 50):
+            colorPalletFinal.append(color)
     
     for color in colorPalletFinal:
         print(color)
@@ -65,6 +72,7 @@ def getColorPalletOfImage(image, maxColors, whiteThreshold = 240):
 
 def getColorDist(color1, color2):
     return abs(color1[0] - color2[0]) + abs(color1[1] - color2[1]) + abs(color1[2] - color2[2]) + abs(color1[3] - color2[3])
+
 
 def crunchColorPallet(colorPallet, maxColors):
     newColorPallet = []
@@ -116,6 +124,7 @@ def setColorPallet(image, colorPallet, maxColors):
         colorPallet[i] = np.int16(colorPallet[i])
     numToDo = image.shape[0] * image.shape[1]
     numDown = 0
+    
     for x in range(image.shape[1]):
         for y in range(image.shape[0]):
             closestColor = None
