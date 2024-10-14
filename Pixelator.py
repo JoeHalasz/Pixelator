@@ -3,9 +3,18 @@ import sys
 import numpy as np
 import imageio.v2 as iio
 import threading
+import time
 
 imageInputPath = "images/"
 imageOutputPath = "output/"
+
+def timeIt(numDown, numToDo, lastPercentDone, timeAtStart):
+    percentDone = (numDown / numToDo) * 100
+    if (int(percentDone) != lastPercentDone):
+        timeTaken = time.time() - timeAtStart
+        estimatedTimeTotal = timeTaken*(1/(percentDone/100))
+        print('\r' + str(int(percentDone)) + "%, time remaining:", round(estimatedTimeTotal - timeTaken,2), "seconds", end='', flush=True)
+    return int(percentDone)
 
 def getColorPalletForced():
     # open file colorPallet.txt
@@ -29,101 +38,23 @@ def getColorPalletForced():
     print("Color pallet loaded from file with ", len(colorPallet), " colors")
     return list(colorPallet)
 
-
-def getColorPalletOfImage(image, maxColors, whiteThreshold = 240):
-    # go through the image and make all colors over whiteThreadhold white
-    for x in range(image.shape[1]):
-        for y in range(image.shape[0]):
-            for i in range(3):
-                if (image[y][x][i] > 255 - whiteThreshold):
-                    image[y][x][i] = 255
-                if (image[y][x][i] < whiteThreshold):
-                    image[y][x][i] = 0
-    # go through the image and make all the colors that are black have an alpha of 255
-    for x in range(image.shape[1]):
-        for y in range(image.shape[0]):
-            if (image[y][x][0] < 10 and image[y][x][1] < 10 and image[y][x][2] < 10):
-                image[y][x][3] = 255
-    
-    # make a dict for the colors with how many times they appear
-    colorPallet = {}
-    for x in range(image.shape[1]):
-        for y in range(image.shape[0]):
-            colorPallet[tuple(image[y][x])] = colorPallet.get(tuple(image[y][x]), 0) + 1
-
-    colorPalletFinal = []
-    # take the top maxColors colors
-    # for color in sorted(colorPallet, key=colorPallet.get, reverse=True):
-    #     colorPalletFinal.append(color)
-    #     if (len(colorPalletFinal) >= maxColors):
-    #         break
-    
-    # only take the colors seen over 50 times
-    for color in colorPallet:
-        if (colorPallet[color] > 50):
-            colorPalletFinal.append(color)
-    
-    for color in colorPalletFinal:
-        print(color)
-    print("Color pallet loaded from image with", len(colorPalletFinal), "colors")
-  
-    return colorPalletFinal
-
-
 def getColorDist(color1, color2):
     return abs(color1[0] - color2[0]) + abs(color1[1] - color2[1]) + abs(color1[2] - color2[2]) + abs(color1[3] - color2[3])
 
 
-def crunchColorPallet(colorPallet, maxColors):
-    newColorPallet = []
-    smallestDists = []
-    todo = len(colorPallet) * len(colorPallet)
-    done = 0
-    print("Crunching color pallet of" , len(colorPallet) ,"to", maxColors, "colors")
-
-    numBefore = len(colorPallet)
-    
-    while  len(colorPallet) > maxColors:
-        if (len(colorPallet) % 10 == 0):
-            print("Color pallet down to", len(colorPallet), "colors")
-        for i in range(len(colorPallet)):
-            colorPallet[i] = np.int32(colorPallet[i])
-        dictOfColorsToAverageDiff = {}
-        lowestDiffColorIndex = None
-        lowestDiff = 999999999
-        # get the average diff of each color compared to other colors
-        for i in range(len(colorPallet)):
-            color = colorPallet[i]
-            avgDiff = 0
-            for color2 in colorPallet:
-                avgDiff += getColorDist(color, color2)
-            avgDiff /= len(colorPallet)
-            dictOfColorsToAverageDiff[tuple(color)] = avgDiff
-            if (avgDiff < lowestDiff):
-                lowestDiff = avgDiff
-                lowestDiffColorIndex = i
-        
-        # remove the lowest diff from the color pallet
-        colorPallet.pop(lowestDiffColorIndex)
-    
-    print("Color pallet Was", numBefore, "colors, and is now", len(colorPallet), "colors")             
-    
-    return list(colorPallet)
-
-def setColorPallet(image, colorPallet, maxColors):
-    if maxColors > 512:
+def setColorPallet(image, colorPallet):
+    if len(colorPallet) > 128:
         print("Too many colors in color pallet")
         return image
-    print("Setting color pallet using", maxColors, "colors")
-    # go through each pixel and find the closest color in the pallet
-    if (len(colorPallet) > maxColors):
-        colorPallet = crunchColorPallet(colorPallet, maxColors)
-    
+    print("Setting color pallet using", len(colorPallet), "colors")
+
     # convert all colors to np.uint16
     for i in range(len(colorPallet)):
         colorPallet[i] = np.int16(colorPallet[i])
     numToDo = image.shape[0] * image.shape[1]
     numDown = 0
+    lastPercentDone = 0
+    timeAtStart = time.time()
     
     for x in range(image.shape[1]):
         for y in range(image.shape[0]):
@@ -136,37 +67,32 @@ def setColorPallet(image, colorPallet, maxColors):
                     closestColor = color
             image[y][x] = closestColor
             numDown += 1
-            # round to the nearest 2 decimal
-            percentDone = numDown / numToDo * 100
-            if (percentDone % 1 == 0):
-                print(str(percentDone) + "% done")
-    return image
-
-
-def roundColors(image, roundTo):
-    # round each color to the nearest roundTo
-    for x in range(image.shape[1]):
-        for y in range(image.shape[0]):
-            for i in range(3):
-                image[y][x][i] = int(image[y][x][i] / roundTo) * roundTo
-    
+            lastPercentDone = timeIt(numDown, numToDo, lastPercentDone, timeAtStart)
+    print()
     return image
     
 
 def upscale(image, xRatio, yRatio):
+    print("Scaling image to correct ratios")
     # Create the new image
     newImage = np.zeros((image.shape[0] * yRatio, image.shape[1] * xRatio, image.shape[2]), np.uint8)
- 
+    numToDo = image.shape[0] * image.shape[1]
+    numDown = 0
+    lastPercentDone = 0
+    timeAtStart = time.time()
     for x in range(image.shape[1]):
         for y in range(image.shape[0]):
             for i in range(x * xRatio, (x + 1) * xRatio):
                 for j in range(y * yRatio, (y + 1) * yRatio):
                     newImage[j][i] = image[y][x]
-    
+            numDown += 1
+            lastPercentDone = timeIt(numDown, numToDo, lastPercentDone, timeAtStart)
+    print()
     return newImage
 
 
-def Pixelate(image, width, height):
+def Pixelate(image, width, height, shouldUseImageColors=False):
+    print("Pixelizing image")
     # Get the dimensions of the image
     imageHeight = image.shape[0]
     imageWidth = image.shape[1]
@@ -186,36 +112,44 @@ def Pixelate(image, width, height):
     # Create the new image
     newImage = np.zeros((height, width, imageChannels), np.uint8)
 
+    numToDo = width * height
+    numDown = 0
+    lastPercentDone = 0
+    timeAtStart = time.time()
     for x in range(width):
         for y in range(height):
             avg = np.zeros((imageChannels), np.uint32)
             numInAvg = 0
+            colorsSet = set()
             for i in range(x * xRatio, (x + 1) * xRatio):
                 for j in range(y * yRatio, (y + 1) * yRatio):
                     avg += image[j][i]
                     numInAvg += 1
+                    if (shouldUseImageColors):
+                        colorsSet.add(tuple(np.int32(image[j][i])))
             newImage[y][x] = avg / numInAvg
+            if (shouldUseImageColors):
+                # find which color the average is closest to and set it to that instead
+                closestColor = None
+                closestDistance = 999999999
+                for color in colorsSet:
+                    distance = getColorDist(newImage[y][x], color)
+                    if distance < closestDistance:
+                        closestDistance = distance
+                        closestColor = color
+                newImage[y][x] = closestColor
+            numDown += 1
+            lastPercentDone = timeIt(numDown, numToDo, lastPercentDone, timeAtStart)
+    print()
 
     newImage = upscale(newImage, xRatio, yRatio)
-    
     return newImage
-
-
-def numColors(image):
-    colorSet = set()
-    for x in range(image.shape[1]):
-        for y in range(image.shape[0]):
-            colorSet.add(tuple(image[y][x]))
-    return len(colorSet)
-
 
 def main():
     fileName = ""
     width = -1
     height = -1
-    forceColors = "None"
-    maxColors = 20
-    whiteThreshold = 240
+    forceColors = "Correct"
     try:
         fileName = sys.argv[1]
         newRes = sys.argv[2] # formated as "WidthxHeight"
@@ -224,18 +158,18 @@ def main():
         height = int(newRes.split("x")[1])
         if (len(sys.argv) > 3):
             forceColors = sys.argv[3]
-        if (len(sys.argv) > 4):
-            maxColors = int(sys.argv[4])
-        if (len(sys.argv) > 5):
-            whiteThreshold = int(sys.argv[5])
     except:
         print("Usage:")
         print("python Pixelator.py <filename> <NewResXxNewResY>")
         print("python Pixelator.py <filename> <NewResXxNewResY> <ForceColors>")
-        print("python Pixelator.py <filename> <NewResXxNewResY> <ForceColors> <MaxColors||roundTo> <whiteThreshold>")
-        print("Force colors can be File,TakeFromImage,Round,None")
+        print("Force colors can be File,Correct,None")
+        print("    File will take a color pallet from colorPallet.txt")
+        print("    Correct will use the colors from the image")
+        print("    None will just average the colors and not color correct")
         quit()
-        
+    
+    # get the start time
+    startTime = time.time()
         
     # Load the image
     originalImage = iio.imread(imageInputPath + fileName)
@@ -246,24 +180,24 @@ def main():
         originalImage = np.dstack((originalImage, np.ones((originalImage.shape[0], originalImage.shape[1]), np.uint8) * 255))
         hadAlpha = False
 
-    newImage = Pixelate(originalImage, width, height)
+    if (forceColors == "Correct"):
+        newImage = Pixelate(originalImage, width, height, True)
+    else:
+        newImage = Pixelate(originalImage, width, height)
     
     colorPallet = []
     if (forceColors == "File"):
         colorPallet = getColorPalletForced()
-    elif (forceColors == "TakeFromImage"):
-        colorPallet = getColorPalletOfImage(originalImage, maxColors, whiteThreshold)
     
     if (colorPallet != []):
-        newImage = setColorPallet(newImage, colorPallet, maxColors)
-    elif (forceColors == "Round"):
-        newImage = roundColors(newImage, maxColors)
-        
+        newImage = setColorPallet(newImage, colorPallet)
         
     if (hadAlpha == False):
         newImage = newImage[:,:,:3]
     # Save the image
     iio.imwrite(imageOutputPath + fileName, newImage)
+
+    print("Total time taken:", round(time.time() - startTime,2), "seconds")
 
 
 if __name__ == "__main__":
